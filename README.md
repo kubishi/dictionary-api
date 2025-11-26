@@ -46,25 +46,31 @@ curl "http://localhost:3000/api/search-paiute?q=tüka&limit=3"
 
 ## API Endpoints
 
+**Base URL**: `https://api.dictionary.kubishi.com`
+
+**Documentation**: https://api.dictionary.kubishi.com/docs
+
 ### Search English (Vector Search)
 ```
-GET /api/search?q=dog&limit=10
+GET /search?q=dog&limit=10
 ```
 
 ### Search Paiute (Exact/Partial Match)
 ```
-GET /api/search-paiute?q=tüka&limit=10
+GET /search-paiute?q=tüka&limit=10
 ```
 
 ### Search Sentences (Vector Search)
 ```
-GET /api/search-sentences?q=I am hungry&limit=10
+GET /search-sentences?q=I am hungry&limit=10
 ```
 
 ### Get Word by ID
 ```
-GET /api/word/:id
+GET /word/:id
 ```
+
+**Note**: The `/api` prefix has been removed. All endpoints are now at the root level.
 
 ## Uploading Dictionary Data
 

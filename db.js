@@ -1,5 +1,9 @@
 import { MongoClient, Binary } from 'mongodb';
 import OpenAI from 'openai';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 const EMBEDDING_SIZE = 1536;
@@ -174,4 +178,74 @@ export async function getWordOfTheDay() {
   }
 
   return null;
+}
+
+// Aliases for compatibility
+export const connectDB = connectToDatabase;
+export const getDB = async () => {
+  const { db } = await connectToDatabase();
+  return db;
+};
+export const getOpenAI = () => openai;
+export const searchWords = searchEnglish;
+export const getAudio = async (wordId) => {
+  const audios = await getAudiosByWordId(wordId);
+  return audios[0] || null;
+};
+
+// Upload functions
+export async function upsertWord(wordData) {
+  const { word, lexeme_form, ...data } = wordData;
+  const { words } = await getCollections();
+
+  // Generate embedding
+  const textToEmbed = [
+    word || lexeme_form,
+    ...data.senses.map(s => s.gloss).filter(Boolean),
+    ...data.senses.map(s => s.definition).filter(Boolean)
+  ].join(' ');
+
+  const embedding = await getEmbedding(textToEmbed);
+  const binaryEmbedding = vectorToBinary(embedding);
+
+  const doc = {
+    word,
+    lexeme_form,
+    ...data,
+    embedding: binaryEmbedding,
+    updated_at: new Date()
+  };
+
+  const result = await words.updateOne(
+    { word, lexeme_form },
+    { $set: doc, $setOnInsert: { created_at: new Date() } },
+    { upsert: true }
+  );
+
+  return result;
+}
+
+export async function upsertSentence(sentenceData) {
+  const { text, translation, ...data } = sentenceData;
+  const { sentences } = await getCollections();
+
+  const textToEmbed = `${text} ${translation}`;
+  const embedding = await getEmbedding(textToEmbed);
+  const binaryEmbedding = vectorToBinary(embedding);
+
+  const doc = {
+    text,
+    translation,
+    ...data,
+    embedding: binaryEmbedding,
+    updated_at: new Date()
+  };
+
+  const result = await sentences.updateOne(
+    { text },
+    { $set: doc, $setOnInsert: { created_at: new Date() } },
+    { upsert: true }
+  );
+
+  return result;
 }

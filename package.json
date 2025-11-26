@@ -4,16 +4,17 @@
   "description": "Kubishi Dictionary API - Serverless",
   "type": "module",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "node dev-server.js",
     "deploy": "vercel --prod",
     "upload": "node scripts/upload.js"
   },
   "dependencies": {
+    "dotenv": "^17.2.3",
     "mongodb": "^6.0.0",
     "openai": "^4.0.0"
   },
   "devDependencies": {
-    "vercel": "^33.0.0",
+    "vercel": "^48.11.0",
     "xml2js": "^0.6.0"
   },
   "engines": {

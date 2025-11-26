@@ -31,7 +31,18 @@ Run the development server:
 npm run dev
 ```
 
-API will be available at `http://localhost:3000/api/...`
+This starts a local Node.js server (not Vercel CLI) at `http://localhost:3000`
+
+Test endpoints:
+```bash
+# Search for "dog"
+curl "http://localhost:3000/api/search?q=dog&limit=3"
+
+# Search Paiute
+curl "http://localhost:3000/api/search-paiute?q=tüka&limit=3"
+```
+
+**Note**: If you want to use Vercel's dev environment instead, run `vercel dev` directly (not through npm).
 
 ## API Endpoints
 

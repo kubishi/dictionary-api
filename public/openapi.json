@@ -1,0 +1,243 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Kubishi Dictionary API",
+    "version": "1.0.0",
+    "description": "API for searching the Owens Valley Paiute dictionary with semantic search powered by OpenAI embeddings",
+    "contact": {
+      "name": "Kubishi Research Group",
+      "url": "https://research.kubishi.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.dictionary.kubishi.com",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/search": {
+      "get": {
+        "summary": "Search dictionary (English)",
+        "description": "Semantic search using OpenAI embeddings. Returns Paiute words based on English meaning.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "English search query",
+            "example": "dog"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 10 },
+            "description": "Maximum number of results"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Word" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/search-paiute": {
+      "get": {
+        "summary": "Search by Paiute word",
+        "description": "Exact and fuzzy matching for Paiute words",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Paiute word to search",
+            "example": "tüka"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 10 },
+            "description": "Maximum number of results"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Word" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/search-sentences": {
+      "get": {
+        "summary": "Search example sentences",
+        "description": "Semantic search for example sentences using embeddings",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "English sentence to search",
+            "example": "I am hungry"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 10 },
+            "description": "Maximum number of results"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Sentence" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/word/{id}": {
+      "get": {
+        "summary": "Get word by ID",
+        "description": "Retrieve a specific word with all details and audio",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Word ID",
+            "example": "kwidapugu_ca3e24b8-5442-4a7f-8b33-0a90900797bb"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Word details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "word": { "$ref": "#/components/schemas/Word" },
+                    "audio": { "$ref": "#/components/schemas/Audio" }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Word not found"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Word": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "lexical_unit": { "type": "string", "description": "Paiute word" },
+          "word": { "type": "string" },
+          "dateCreated": { "type": "string", "format": "date-time" },
+          "dateModified": { "type": "string", "format": "date-time" },
+          "traits": {
+            "type": "object",
+            "properties": {
+              "morph-type": { "type": "string" }
+            }
+          },
+          "senses": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Sense" }
+          }
+        }
+      },
+      "Sense": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "grammatical_info": { "type": "string", "example": "Noun" },
+          "gloss": { "type": "string", "example": "dog" },
+          "definition": { "type": "string", "example": "Dog (domestic)" },
+          "examples": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Example" }
+          }
+        }
+      },
+      "Example": {
+        "type": "object",
+        "properties": {
+          "form": { "type": "string", "description": "Paiute sentence" },
+          "translation": { "type": "string", "description": "English translation" },
+          "source": { "type": "string", "description": "Source/speaker" },
+          "note": { "type": "string" }
+        }
+      },
+      "Sentence": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "Paiute sentence" },
+          "translation": { "type": "string", "description": "English translation" },
+          "word_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "IDs of related words"
+          },
+          "source": { "type": "string" }
+        }
+      },
+      "Audio": {
+        "type": "object",
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "word_ids": { "type": "array", "items": { "type": "string" } },
+          "transcript": { "type": "string" },
+          "notes": { "type": "string" }
+        }
+      }
+    }
+  }
+}

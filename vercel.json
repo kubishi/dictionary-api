@@ -7,6 +7,8 @@
     { "source": "/search", "destination": "/api/search" },
     { "source": "/search-paiute", "destination": "/api/search-paiute" },
     { "source": "/search-sentences", "destination": "/api/search-sentences" },
+    { "source": "/random-word", "destination": "/api/random-word" },
+    { "source": "/random-sentence", "destination": "/api/random-sentence" },
     { "source": "/word/:id", "destination": "/api/word/:id" }
   ],
   "headers": [

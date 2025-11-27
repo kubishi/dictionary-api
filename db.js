@@ -73,30 +73,36 @@ export async function getWordById(wordId) {
   );
 }
 
-export async function searchEnglish(query, limit = 5) {
+export async function searchEnglish(query, limit = 5, skip = 0) {
   const embedding = await getEmbedding(query);
   const { words } = await getCollections();
 
-  const results = await words.aggregate([
+  const pipeline = [
     {
       $vectorSearch: {
         index: 'definitionIndex',
         path: 'embedding',
         queryVector: embedding,
-        numCandidates: limit * 20,
-        limit
+        numCandidates: (limit + skip) * 20,
+        limit: limit + skip
       }
     },
     { $project: { _id: 0, embedding: 0 } }
-  ]).toArray();
+  ];
+
+  if (skip > 0) {
+    pipeline.push({ $skip: skip });
+  }
+
+  const results = await words.aggregate(pipeline).toArray();
 
   return results;
 }
 
-export async function searchPaiute(query, limit = 5) {
+export async function searchPaiute(query, limit = 5, skip = 0) {
   const { words } = await getCollections();
 
-  const results = await words.aggregate([
+  const pipeline = [
     {
       $search: {
         index: 'default',
@@ -107,29 +113,42 @@ export async function searchPaiute(query, limit = 5) {
         }
       }
     },
-    { $limit: limit },
     { $project: { _id: 0, embedding: 0 } }
-  ]).toArray();
+  ];
+
+  if (skip > 0) {
+    pipeline.push({ $skip: skip });
+  }
+
+  pipeline.push({ $limit: limit });
+
+  const results = await words.aggregate(pipeline).toArray();
 
   return results;
 }
 
-export async function searchSentences(query, limit = 5) {
+export async function searchSentences(query, limit = 5, skip = 0) {
   const embedding = await getEmbedding(query);
   const { sentences } = await getCollections();
 
-  const results = await sentences.aggregate([
+  const pipeline = [
     {
       $vectorSearch: {
         index: 'sentenceIndex',
         path: 'embedding',
         queryVector: embedding,
-        numCandidates: limit * 20,
-        limit
+        numCandidates: (limit + skip) * 20,
+        limit: limit + skip
       }
     },
     { $project: { _id: 0, embedding: 0 } }
-  ]).toArray();
+  ];
+
+  if (skip > 0) {
+    pipeline.push({ $skip: skip });
+  }
+
+  const results = await sentences.aggregate(pipeline).toArray();
 
   return results;
 }
@@ -178,6 +197,28 @@ export async function getWordOfTheDay() {
   }
 
   return null;
+}
+
+export async function getRandomWord() {
+  const { words } = await getCollections();
+
+  const randomWords = await words.aggregate([
+    { $sample: { size: 1 } },
+    { $project: { _id: 0, embedding: 0 } }
+  ]).toArray();
+
+  return randomWords[0] || null;
+}
+
+export async function getRandomSentence() {
+  const { sentences } = await getCollections();
+
+  const randomSentences = await sentences.aggregate([
+    { $sample: { size: 1 } },
+    { $project: { _id: 0, embedding: 0 } }
+  ]).toArray();
+
+  return randomSentences[0] || null;
 }
 
 // Aliases for compatibility

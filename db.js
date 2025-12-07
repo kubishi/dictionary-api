@@ -325,6 +325,96 @@ export async function upsertWord(wordData) {
   return result;
 }
 
+export async function browseWords(letter = null, limit = 50, skip = 0) {
+  const { words } = await getCollections();
+  
+  // Get all valid words with only necessary fields
+  const allWords = await words.find({
+    $or: [
+      { word: { $ne: null } },
+      { lexical_unit: { $ne: null } }
+    ],
+    senses: {
+      $elemMatch: {
+        $or: [
+          { gloss: { $ne: null } },
+          { definition: { $ne: null } }
+        ]
+      }
+    }
+  }, {
+    projection: { 
+      _id: 0, 
+      embedding: 0,
+      'senses.examples': 0,
+      dateCreated: 0,
+      dateModified: 0,
+      guid: 0,
+      traits: 0,
+      created_at: 0,
+      updated_at: 0
+    }
+  }).toArray();
+
+  // Filter by first alphabetic character and sort
+  let filteredWords = allWords;
+  
+  if (letter) {
+    filteredWords = allWords.filter(word => {
+      const text = word.lexical_unit || word.word || '';
+      const match = text.match(/[a-zA-Z]/);
+      return match && match[0].toUpperCase() === letter.toUpperCase();
+    });
+  }
+
+  // Sort by lexical_unit or word
+  filteredWords.sort((a, b) => {
+    const aText = (a.lexical_unit || a.word || '').toLowerCase();
+    const bText = (b.lexical_unit || b.word || '').toLowerCase();
+    return aText.localeCompare(bText);
+  });
+
+  // Apply pagination
+  return filteredWords.slice(skip, skip + limit);
+}
+
+export async function getLetterCounts() {
+  const { words } = await getCollections();
+  
+  // Get all valid words
+  const allWords = await words.find({
+    $or: [
+      { word: { $ne: null } },
+      { lexical_unit: { $ne: null } }
+    ],
+    senses: {
+      $elemMatch: {
+        $or: [
+          { gloss: { $ne: null } },
+          { definition: { $ne: null } }
+        ]
+      }
+    }
+  }).toArray();
+
+  // Count by first alphabetic character
+  const counts = {};
+  for (const word of allWords) {
+    const text = word.lexical_unit || word.word || '';
+    // Find first alphabetic character
+    const match = text.match(/[a-zA-Z]/);
+    if (match) {
+      const letter = match[0].toUpperCase();
+      counts[letter] = (counts[letter] || 0) + 1;
+    }
+  }
+
+  // Convert to array and sort
+  return Object.entries(counts)
+    .map(([letter, count]) => ({ letter, count }))
+    .sort((a, b) => a.letter.localeCompare(b.letter));
+}
+
 export async function upsertSentence(sentenceData) {
   const { text, translation, ...data } = sentenceData;
   const { sentences } = await getCollections();

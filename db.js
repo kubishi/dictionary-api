@@ -64,6 +64,22 @@ export function vectorToBinary(vector) {
   return new Binary(Buffer.from(buffer), Binary.SUBTYPE_BYTE_ARRAY);
 }
 
+// Helper to filter out invalid entries
+function isValidEntry(entry) {
+  // Must have either word or lexical_unit
+  if (!entry.word && !entry.lexical_unit) {
+    return false;
+  }
+  
+  // Must have at least one sense with gloss or definition
+  if (!entry.senses || entry.senses.length === 0) {
+    return false;
+  }
+  
+  const hasValidSense = entry.senses.some(sense => sense.gloss || sense.definition);
+  return hasValidSense;
+}
+
 // Database queries
 export async function getWordById(wordId) {
   const { words } = await getCollections();
@@ -96,7 +112,7 @@ export async function searchEnglish(query, limit = 5, skip = 0) {
 
   const results = await words.aggregate(pipeline).toArray();
 
-  return results;
+  return results.filter(isValidEntry);
 }
 
 export async function searchPaiute(query, limit = 5, skip = 0) {
@@ -124,7 +140,7 @@ export async function searchPaiute(query, limit = 5, skip = 0) {
 
   const results = await words.aggregate(pipeline).toArray();
 
-  return results;
+  return results.filter(isValidEntry);
 }
 
 export async function searchSentences(query, limit = 5, skip = 0) {
@@ -185,7 +201,23 @@ export async function getWordOfTheDay() {
 
   // No word for today - pick a random one (prefer words with examples)
   const wordsWithExamples = await words.aggregate([
-    { $match: { 'senses.examples.0': { $exists: true } } },
+    {
+      $match: {
+        'senses.examples.0': { $exists: true },
+        $or: [
+          { word: { $ne: null } },
+          { lexical_unit: { $ne: null } }
+        ],
+        senses: {
+          $elemMatch: {
+            $or: [
+              { gloss: { $ne: null } },
+              { definition: { $ne: null } }
+            ]
+          }
+        }
+      }
+    },
     { $sample: { size: 1 } },
     { $project: { _id: 0, embedding: 0 } }
   ]).toArray();
@@ -214,6 +246,22 @@ export async function getRandomWord() {
   const { words } = await getCollections();
 
   const randomWords = await words.aggregate([
+    {
+      $match: {
+        $or: [
+          { word: { $ne: null } },
+          { lexical_unit: { $ne: null } }
+        ],
+        senses: {
+          $elemMatch: {
+            $or: [
+              { gloss: { $ne: null } },
+              { definition: { $ne: null } }
+            ]
+          }
+        }
+      }
+    },
     { $sample: { size: 1 } },
     { $project: { _id: 0, embedding: 0 } }
   ]).toArray();

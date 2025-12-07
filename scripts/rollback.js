@@ -80,9 +80,10 @@ async function restoreFromBackup(db, timestamp) {
 
   console.log('\nRestoring from backup...');
 
-  // Drop current collections
-  await wordsCollection.drop().catch(() => {});
-  await sentencesCollection.drop().catch(() => {});
+  // Clear current collections (preserve indexes including vector search)
+  const deletedWords = await wordsCollection.deleteMany({});
+  const deletedSentences = await sentencesCollection.deleteMany({});
+  console.log(`  Cleared ${deletedWords.deletedCount} words, ${deletedSentences.deletedCount} sentences`);
 
   // Restore words
   if (fs.existsSync(wordsBackupPath)) {
@@ -92,10 +93,22 @@ async function restoreFromBackup(db, timestamp) {
       await wordsCollection.insertMany(words);
       console.log(`  ✓ Restored ${words.length} words`);
 
-      // Recreate indexes
-      await wordsCollection.createIndex({ id: 1 }, { unique: true });
-      await wordsCollection.createIndex({ guid: 1 });
-      await wordsCollection.createIndex({ lexical_unit: 1 });
+      // Recreate indexes (skip if they already exist)
+      try {
+        await wordsCollection.createIndex({ id: 1 }, { unique: true });
+      } catch (err) {
+        if (err.code !== 86) throw err;
+      }
+      try {
+        await wordsCollection.createIndex({ guid: 1 });
+      } catch (err) {
+        if (err.code !== 86) throw err;
+      }
+      try {
+        await wordsCollection.createIndex({ lexical_unit: 1 });
+      } catch (err) {
+        if (err.code !== 86) throw err;
+      }
     }
   } else {
     console.log(`  Warning: Words backup file not found`);
@@ -109,9 +122,17 @@ async function restoreFromBackup(db, timestamp) {
       await sentencesCollection.insertMany(sentences);
       console.log(`  ✓ Restored ${sentences.length} sentences`);
 
-      // Recreate indexes
-      await sentencesCollection.createIndex({ id: 1 }, { unique: true });
-      await sentencesCollection.createIndex({ sentence: 1 });
+      // Recreate indexes (skip if they already exist)
+      try {
+        await sentencesCollection.createIndex({ id: 1 }, { unique: true });
+      } catch (err) {
+        if (err.code !== 86) throw err;
+      }
+      try {
+        await sentencesCollection.createIndex({ sentence: 1 });
+      } catch (err) {
+        if (err.code !== 86) throw err;
+      }
     }
   } else {
     console.log(`  Warning: Sentences backup file not found`);

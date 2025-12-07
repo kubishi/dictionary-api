@@ -90,8 +90,7 @@ async function getEmbedding(text) {
 }
 
 function vectorToBinary(vector) {
-  const buffer = new Float32Array(vector).buffer;
-  return new Binary(Buffer.from(buffer), Binary.SUBTYPE_BYTE_ARRAY);
+  return Binary.fromFloat32Array(new Float32Array(vector));
 }
 
 // XML parsing
@@ -222,27 +221,19 @@ async function uploadWords(entries, wordsCollection, sourceWordsMap = null) {
       }
     }
 
-    // Check if we can reuse existing embedding from source db
-    const sourceWord = sourceWordsMap.get(entry.id);
-    if (sourceWord && sourceWord.embedding && sourceWord.dateModified === entry.dateModified) {
-      // Word unchanged, reuse embedding from source db
-      entry.embedding = sourceWord.embedding;
-      reusedEmbeddings++;
-    } else {
-      // Need to compute new embedding (check local cache first)
-      const textToEmbed = [
-        entry.word || entry.lexical_unit,
-        ...entry.senses.map(s => s.gloss).filter(Boolean),
-        ...entry.senses.map(s => s.definition).filter(Boolean)
-      ].join(' ');
+    // Always compute new embedding (don't reuse)
+    const textToEmbed = [
+      entry.word || entry.lexical_unit,
+      ...entry.senses.map(s => s.gloss).filter(Boolean),
+      ...entry.senses.map(s => s.definition).filter(Boolean)
+    ].join(' ');
 
-      try {
-        const embedding = await getCachedEmbedding(textToEmbed, 'words');
-        entry.embedding = vectorToBinary(embedding);
-        newEmbeddings++;
-      } catch (err) {
-        console.error(`\n  Warning: Failed to get embedding for ${entry.id}: ${err.message}`);
-      }
+    try {
+      const embedding = await getCachedEmbedding(textToEmbed, 'words');
+      entry.embedding = vectorToBinary(embedding);
+      newEmbeddings++;
+    } catch (err) {
+      console.error(`\n  Warning: Failed to get embedding for ${entry.id}: ${err.message}`);
     }
 
     entry.created_at = new Date();
@@ -260,11 +251,23 @@ async function uploadWords(entries, wordsCollection, sourceWordsMap = null) {
   console.log(`  Inserted ${result.insertedCount} words`);
   console.log(`  Embeddings: ${reusedEmbeddings} reused, ${newEmbeddings} computed`);
 
-  // Create indexes
+  // Create indexes (skip if they already exist)
   console.log('  Creating indexes...');
-  await wordsCollection.createIndex({ id: 1 }, { unique: true });
-  await wordsCollection.createIndex({ guid: 1 });
-  await wordsCollection.createIndex({ lexical_unit: 1 });
+  try {
+    await wordsCollection.createIndex({ id: 1 }, { unique: true });
+  } catch (err) {
+    if (err.code !== 86) throw err; // Only ignore IndexKeySpecsConflict
+  }
+  try {
+    await wordsCollection.createIndex({ guid: 1 });
+  } catch (err) {
+    if (err.code !== 86) throw err;
+  }
+  try {
+    await wordsCollection.createIndex({ lexical_unit: 1 });
+  } catch (err) {
+    if (err.code !== 86) throw err;
+  }
 
   return result;
 }
@@ -323,23 +326,15 @@ async function uploadSentences(entries, sentencesCollection, sourceSentencesMap 
   for (let i = 0; i < sentences.length; i++) {
     const sentence = sentences[i];
 
-    // Check if we can reuse existing embedding from source db (same id means same text hash)
-    const sourceSentence = sourceSentencesMap.get(sentence.id);
-    if (sourceSentence && sourceSentence.embedding) {
-      // Sentence unchanged (same hash), reuse embedding from source db
-      sentence.embedding = sourceSentence.embedding;
-      reusedEmbeddings++;
-    } else {
-      // Need to compute new embedding (check local cache first)
-      const textToEmbed = `${sentence.text} ${sentence.translation}`;
+    // Always compute new embedding (don't reuse)
+    const textToEmbed = `${sentence.text} ${sentence.translation}`;
 
-      try {
-        const embedding = await getCachedEmbedding(textToEmbed, 'sentences');
-        sentence.embedding = vectorToBinary(embedding);
-        newEmbeddings++;
-      } catch (err) {
-        console.error(`  Warning: Failed to get embedding for sentence: ${err.message}`);
-      }
+    try {
+      const embedding = await getCachedEmbedding(textToEmbed, 'sentences');
+      sentence.embedding = vectorToBinary(embedding);
+      newEmbeddings++;
+    } catch (err) {
+      console.error(`  Warning: Failed to get embedding for sentence: ${err.message}`);
     }
 
     sentence.created_at = new Date();
@@ -356,10 +351,18 @@ async function uploadSentences(entries, sentencesCollection, sourceSentencesMap 
   console.log(`  Inserted ${result.insertedCount} sentences`);
   console.log(`  Embeddings: ${reusedEmbeddings} reused, ${newEmbeddings} computed`);
 
-  // Create indexes
+  // Create indexes (skip if they already exist)
   console.log('  Creating indexes...');
-  await sentencesCollection.createIndex({ id: 1 }, { unique: true });
-  await sentencesCollection.createIndex({ sentence: 1 });
+  try {
+    await sentencesCollection.createIndex({ id: 1 }, { unique: true });
+  } catch (err) {
+    if (err.code !== 86) throw err; // Only ignore IndexKeySpecsConflict
+  }
+  try {
+    await sentencesCollection.createIndex({ sentence: 1 });
+  } catch (err) {
+    if (err.code !== 86) throw err;
+  }
 
   return result;
 }
@@ -512,11 +515,13 @@ async function main() {
       }
     }
 
-    // Drop the collections
-    console.log('Dropping existing collections...');
-    await wordsCollection.drop().catch(() => {});
-    await sentencesCollection.drop().catch(() => {});
-    console.log('Collections dropped');
+    // Clear the collections (but keep them to preserve vector search indexes)
+    console.log('Clearing existing collections...');
+    const deletedWords = await wordsCollection.deleteMany({});
+    const deletedSentences = await sentencesCollection.deleteMany({});
+    console.log(`  Deleted ${deletedWords.deletedCount} words`);
+    console.log(`  Deleted ${deletedSentences.deletedCount} sentences`);
+    console.log('Collections cleared (indexes preserved)');
 
     // Parse XML
     console.log(`\nParsing LIFT file...`);
@@ -529,7 +534,86 @@ async function main() {
     await uploadSentences(entries, sentencesCollection, sourceSentencesMap);
 
     // Create metadata collection index
-    await metadataCollection.createIndex({ key: 1 }, { unique: true });
+    try {
+      await metadataCollection.createIndex({ key: 1 }, { unique: true });
+    } catch (err) {
+      if (err.code !== 86) throw err; // Only ignore IndexKeySpecsConflict
+    }
+
+    // Create vector search indexes
+    console.log('\nCreating vector search indexes...');
+    try {
+      await wordsCollection.createSearchIndex({
+        name: 'definitionIndex',
+        type: 'vectorSearch',
+        definition: {
+          fields: [
+            {
+              type: 'vector',
+              path: 'embedding',
+              numDimensions: 1536,
+              similarity: 'cosine'
+            }
+          ]
+        }
+      });
+      console.log('  ✓ Created vector search index "definitionIndex" for words');
+    } catch (err) {
+      if (err.message.includes('already exists')) {
+        console.log('  ✓ Vector search index "definitionIndex" for words already exists');
+      } else {
+        console.log(`  Warning: Could not create vector search index for words: ${err.message}`);
+      }
+    }
+
+    try {
+      await sentencesCollection.createSearchIndex({
+        name: 'sentenceIndex',
+        type: 'vectorSearch',
+        definition: {
+          fields: [
+            {
+              type: 'vector',
+              path: 'embedding',
+              numDimensions: 1536,
+              similarity: 'cosine'
+            }
+          ]
+        }
+      });
+      console.log('  ✓ Created vector search index "sentenceIndex" for sentences');
+    } catch (err) {
+      if (err.message.includes('already exists')) {
+        console.log('  ✓ Vector search index "sentenceIndex" for sentences already exists');
+      } else {
+        console.log(`  Warning: Could not create vector search index for sentences: ${err.message}`);
+      }
+    }
+
+    // Create fuzzy search index for Paiute word search
+    try {
+      await wordsCollection.createSearchIndex({
+        name: 'default',
+        definition: {
+          mappings: {
+            dynamic: false,
+            fields: {
+              lexical_unit: {
+                type: 'string',
+                analyzer: 'lucene.standard'
+              }
+            }
+          }
+        }
+      });
+      console.log('  ✓ Created fuzzy search index "default" for Paiute words');
+    } catch (err) {
+      if (err.message.includes('already exists')) {
+        console.log('  ✓ Fuzzy search index "default" for Paiute words already exists');
+      } else {
+        console.log(`  Warning: Could not create fuzzy search index for Paiute words: ${err.message}`);
+      }
+    }
 
     // Summary
     const wordCount = await wordsCollection.countDocuments();

@@ -15,6 +15,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Local embedding cache directory
 const CACHE_DIR = path.join(os.homedir(), '.kubishi-dictionary', 'embeddings');
+const BACKUP_DIR = path.join(os.homedir(), '.kubishi', 'backups');
 
 // Ensure cache directory exists
 function ensureCacheDir(cacheName) {
@@ -23,6 +24,14 @@ function ensureCacheDir(cacheName) {
     fs.mkdirSync(dir, { recursive: true });
   }
   return dir;
+}
+
+// Ensure backup directory exists
+function ensureBackupDir() {
+  if (!fs.existsSync(BACKUP_DIR)) {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  }
+  return BACKUP_DIR;
 }
 
 // Get embedding from cache or compute and cache it
@@ -190,18 +199,12 @@ function formatSource(source) {
   return source.replace(/\bnn\b/g, 'Norma Nelson');
 }
 
-async function uploadWords(entries, wordsCollection, sourceWordsCollection = null) {
+async function uploadWords(entries, wordsCollection, sourceWordsMap = null) {
   console.log(`\nUploading ${entries.length} words...`);
 
-  // Build a map of existing words from source db for embedding reuse
-  let sourceWordsMap = new Map();
-  if (sourceWordsCollection) {
-    console.log('  Loading existing words from source database...');
-    const sourceWords = await sourceWordsCollection.find({}, { projection: { id: 1, dateModified: 1, embedding: 1 } }).toArray();
-    for (const word of sourceWords) {
-      sourceWordsMap.set(word.id, word);
-    }
-    console.log(`  Found ${sourceWordsMap.size} existing words`);
+  // sourceWordsMap is now passed in directly (already built from backup)
+  if (sourceWordsMap && sourceWordsMap.size > 0) {
+    console.log(`  Found ${sourceWordsMap.size} existing words for embedding reuse`);
   }
 
   const documents = [];
@@ -266,7 +269,7 @@ async function uploadWords(entries, wordsCollection, sourceWordsCollection = nul
   return result;
 }
 
-async function uploadSentences(entries, sentencesCollection, sourceSentencesCollection = null) {
+async function uploadSentences(entries, sentencesCollection, sourceSentencesMap = null) {
   console.log('\nExtracting sentences from entries...');
 
   const sentencesMap = {};
@@ -308,15 +311,9 @@ async function uploadSentences(entries, sentencesCollection, sourceSentencesColl
   const sentences = Object.values(sentencesMap);
   console.log(`Uploading ${sentences.length} sentences...`);
 
-  // Build a map of existing sentences from source db for embedding reuse
-  let sourceSentencesMap = new Map();
-  if (sourceSentencesCollection) {
-    console.log('  Loading existing sentences from source database...');
-    const sourceSentences = await sourceSentencesCollection.find({}, { projection: { id: 1, text: 1, translation: 1, embedding: 1 } }).toArray();
-    for (const sentence of sourceSentences) {
-      sourceSentencesMap.set(sentence.id, sentence);
-    }
-    console.log(`  Found ${sourceSentencesMap.size} existing sentences`);
+  // sourceSentencesMap is now passed in directly (already built from backup)
+  if (sourceSentencesMap && sourceSentencesMap.size > 0) {
+    console.log(`  Found ${sourceSentencesMap.size} existing sentences for embedding reuse`);
   }
 
   let reusedEmbeddings = 0;
@@ -373,16 +370,18 @@ Usage: node scripts/upload.js <path-to-lift-file> [options]
 
 Options:
   --db <name>       Target database name (default: from MONGO_DB env var)
-  --source-db <name> Source database to copy embeddings from (for unchanged words)
-  --clean           Drop existing collections before uploading
+  --backup          Backup current collections to JSON files before uploading (recommended)
+  --no-backup       Skip backup (use with caution)
   --help            Show this help message
 
-Examples:
-  # Upload to a new database, copying embeddings from existing db
-  node scripts/upload.js ../data/ovp_dict.lift --db mnr-flex-v2 --source-db mnr-flex --clean
+Backups are saved to: ~/.kubishi/backups/
 
-  # Fresh upload (will compute all embeddings)
-  node scripts/upload.js ../data/ovp_dict.lift --db mnr-flex-v2 --clean
+Examples:
+  # Upload with backup (safe - backups saved to ~/.kubishi/backups/)
+  node scripts/upload.js ../data/ovp_dict.lift --backup
+
+  # Upload without backup (faster, but no rollback)
+  node scripts/upload.js ../data/ovp_dict.lift --no-backup
 `);
 }
 
@@ -392,8 +391,7 @@ async function main() {
   // Parse arguments
   let liftFilePath = null;
   let dbName = process.env.MONGO_DB;
-  let sourceDbName = null;
-  let cleanFirst = false;
+  let doBackup = null; // null = not specified, true = backup, false = no backup
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--help' || args[i] === '-h') {
@@ -401,10 +399,10 @@ async function main() {
       process.exit(0);
     } else if (args[i] === '--db') {
       dbName = args[++i];
-    } else if (args[i] === '--source-db') {
-      sourceDbName = args[++i];
-    } else if (args[i] === '--clean') {
-      cleanFirst = true;
+    } else if (args[i] === '--backup') {
+      doBackup = true;
+    } else if (args[i] === '--no-backup') {
+      doBackup = false;
     } else if (!args[i].startsWith('-')) {
       liftFilePath = args[i];
     }
@@ -428,21 +426,29 @@ async function main() {
     process.exit(1);
   }
 
+  if (doBackup === null) {
+    console.error('Error: Please specify --backup or --no-backup');
+    printUsage();
+    process.exit(1);
+  }
+
   console.log('='.repeat(60));
   console.log('Dictionary Upload Script');
   console.log('='.repeat(60));
   console.log(`LIFT file: ${liftFile}`);
   console.log(`Target database: ${dbName}`);
-  console.log(`Source database: ${sourceDbName || '(none - will compute all embeddings)'}`);
-  console.log(`Clean first: ${cleanFirst}`);
+  console.log(`Backup: ${doBackup ? `Yes (current data will be saved to ${BACKUP_DIR})` : 'No'}`);
   console.log('='.repeat(60));
 
   // Confirmation for safety
-  if (cleanFirst) {
-    console.log(`\nWARNING: This will DROP all data in database "${dbName}"`);
-    console.log('Press Ctrl+C within 5 seconds to cancel...\n');
-    await new Promise(resolve => setTimeout(resolve, 5000));
+  console.log(`\nThis will REPLACE all data in the words and sentences collections.`);
+  if (doBackup) {
+    console.log(`Current data will be backed up to JSON files in ${BACKUP_DIR}`);
+  } else {
+    console.log('WARNING: No backup will be made. Current data will be LOST.');
   }
+  console.log('Press Ctrl+C within 5 seconds to cancel...\n');
+  await new Promise(resolve => setTimeout(resolve, 5000));
 
   try {
     const database = await connectToDatabase(dbName);
@@ -450,24 +456,67 @@ async function main() {
     const sentencesCollection = database.collection('sentences');
     const metadataCollection = database.collection('metadata');
 
-    // Connect to source database if specified (for embedding reuse)
-    let sourceWordsCollection = null;
-    let sourceSentencesCollection = null;
-    if (sourceDbName) {
-      console.log(`\nConnecting to source database: ${sourceDbName}`);
-      const sourceDb = client.db(sourceDbName);
-      sourceWordsCollection = sourceDb.collection('words');
-      sourceSentencesCollection = sourceDb.collection('sentences');
+    // Keep references to existing collections for embedding reuse
+    let sourceWordsMap = new Map();
+    let sourceSentencesMap = new Map();
+
+    // Backup current collections if requested
+    if (doBackup) {
+      console.log('Backing up current collections to files...');
+      ensureBackupDir();
+      
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0] + '_' + new Date().toTimeString().split(' ')[0].replace(/:/g, '-');
+      const wordsBackupPath = path.join(BACKUP_DIR, `words_${timestamp}.json`);
+      const sentencesBackupPath = path.join(BACKUP_DIR, `sentences_${timestamp}.json`);
+
+      // Backup words collection
+      try {
+        const wordsCount = await wordsCollection.countDocuments();
+        if (wordsCount > 0) {
+          console.log(`  Exporting ${wordsCount} words to ${wordsBackupPath}...`);
+          const words = await wordsCollection.find({}).toArray();
+          
+          // Build map for embedding reuse before backup
+          for (const word of words) {
+            sourceWordsMap.set(word.id, word);
+          }
+          
+          fs.writeFileSync(wordsBackupPath, JSON.stringify(words, null, 2));
+          console.log(`  ✓ Words backed up`);
+        } else {
+          console.log('  No words to backup (collection empty)');
+        }
+      } catch (err) {
+        console.log(`  Words collection not found (first upload?)`);
+      }
+
+      // Backup sentences collection
+      try {
+        const sentencesCount = await sentencesCollection.countDocuments();
+        if (sentencesCount > 0) {
+          console.log(`  Exporting ${sentencesCount} sentences to ${sentencesBackupPath}...`);
+          const sentences = await sentencesCollection.find({}).toArray();
+          
+          // Build map for embedding reuse before backup
+          for (const sentence of sentences) {
+            sourceSentencesMap.set(sentence.id, sentence);
+          }
+          
+          fs.writeFileSync(sentencesBackupPath, JSON.stringify(sentences, null, 2));
+          console.log(`  ✓ Sentences backed up`);
+        } else {
+          console.log('  No sentences to backup (collection empty)');
+        }
+      } catch (err) {
+        console.log(`  Sentences collection not found (first upload?)`);
+      }
     }
 
-    // Clean collections if requested
-    if (cleanFirst) {
-      console.log('Dropping existing collections...');
-      await wordsCollection.drop().catch(() => {}); // Ignore if doesn't exist
-      await sentencesCollection.drop().catch(() => {});
-      await metadataCollection.drop().catch(() => {});
-      console.log('Collections dropped');
-    }
+    // Drop the collections
+    console.log('Dropping existing collections...');
+    await wordsCollection.drop().catch(() => {});
+    await sentencesCollection.drop().catch(() => {});
+    console.log('Collections dropped');
 
     // Parse XML
     console.log(`\nParsing LIFT file...`);
@@ -475,9 +524,9 @@ async function main() {
     const entries = extractEntries(Array.isArray(xmlEntries) ? xmlEntries : [xmlEntries]);
     console.log(`Found ${entries.length} entries`);
 
-    // Upload
-    await uploadWords(entries, wordsCollection, sourceWordsCollection);
-    await uploadSentences(entries, sentencesCollection, sourceSentencesCollection);
+    // Upload (passing the maps for embedding reuse)
+    await uploadWords(entries, wordsCollection, sourceWordsMap);
+    await uploadSentences(entries, sentencesCollection, sourceSentencesMap);
 
     // Create metadata collection index
     await metadataCollection.createIndex({ key: 1 }, { unique: true });
@@ -492,26 +541,17 @@ async function main() {
     console.log(`Database: ${dbName}`);
     console.log(`Words: ${wordCount}`);
     console.log(`Sentences: ${sentenceCount}`);
+    if (doBackup) {
+      console.log(`Backups saved to: ${BACKUP_DIR}`);
+    }
     console.log('='.repeat(60));
 
-    console.log(`
-Next steps:
-1. Create search indexes in Atlas UI for the new database:
-   - words collection: "definitionIndex" (vector) and "default" (text on lexical_unit)
-   - sentences collection: "sentenceIndex" (vector)
-
-2. Test the new database by updating MONGO_DB in your local .env
-
-3. When ready, update the Vercel environment variable:
-   vercel env rm MONGO_DB production
-   vercel env add MONGO_DB production
-   (enter: ${dbName})
-   vercel --prod
-
-4. Update the Atlas Trigger to use the new database name
-
-5. After confirming everything works, delete the old database in Atlas
+    if (doBackup) {
+      console.log(`
+To restore from a backup, you can use mongoimport or the rollback script:
+  node scripts/rollback.js <backup-timestamp>
 `);
+    }
 
     await closeConnection();
     process.exit(0);

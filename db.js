@@ -171,29 +171,13 @@ export async function getAudiosByWordId(wordId) {
 
 export async function getWordOfTheDay() {
   const today = new Date().toISOString().split('T')[0];
-  const { metadata, words } = await getCollections();
+  const { metadata } = await getCollections();
 
-  let wotd = await metadata.findOne({ key: 'word_of_the_day', date: today });
+  // Read-only: word of the day is set by Atlas Scheduled Trigger
+  const wotd = await metadata.findOne({ key: 'word_of_the_day', date: today });
 
   if (wotd) {
     return await getWordById(wotd.word_id);
-  }
-
-  // Get random word with examples
-  const randomWords = await words.aggregate([
-    { $match: { 'senses.examples': { $exists: true, $ne: [] } } },
-    { $sample: { size: 1 } },
-    { $project: { _id: 0, embedding: 0 } }
-  ]).toArray();
-
-  if (randomWords.length > 0) {
-    const word = randomWords[0];
-    await metadata.updateOne(
-      { key: 'word_of_the_day' },
-      { $set: { key: 'word_of_the_day', date: today, word_id: word.id } },
-      { upsert: true }
-    );
-    return word;
   }
 
   return null;

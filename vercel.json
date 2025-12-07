@@ -9,6 +9,7 @@
     { "source": "/search-sentences", "destination": "/api/search-sentences" },
     { "source": "/random-word", "destination": "/api/random-word" },
     { "source": "/random-sentence", "destination": "/api/random-sentence" },
+    { "source": "/word-of-the-day", "destination": "/api/word-of-the-day" },
     { "source": "/word/:id", "destination": "/api/word/:id" }
   ],
   "headers": [

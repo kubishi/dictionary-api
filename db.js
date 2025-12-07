@@ -170,17 +170,44 @@ export async function getAudiosByWordId(wordId) {
 }
 
 export async function getWordOfTheDay() {
+  console.log('Fetching word of the day...');
   const today = new Date().toISOString().split('T')[0];
-  const { metadata } = await getCollections();
+  const { metadata, words } = await getCollections();
 
-  // Read-only: word of the day is set by Atlas Scheduled Trigger
+  // Check if we already have a word of the day for today
   const wotd = await metadata.findOne({ key: 'word_of_the_day', date: today });
+
+  console.log('WOTD record:', wotd);
 
   if (wotd) {
     return await getWordById(wotd.word_id);
   }
 
-  return null;
+  // No word for today - pick a random one (prefer words with examples)
+  const wordsWithExamples = await words.aggregate([
+    { $match: { 'senses.examples.0': { $exists: true } } },
+    { $sample: { size: 1 } },
+    { $project: { _id: 0, embedding: 0 } }
+  ]).toArray();
+
+  const randomWord = wordsWithExamples[0] || await getRandomWord();
+
+  if (randomWord) {
+    // Save as today's word of the day
+    await metadata.updateOne(
+      { key: 'word_of_the_day' },
+      {
+        $set: {
+          date: today,
+          word_id: randomWord.id,
+          updated_at: new Date()
+        }
+      },
+      { upsert: true }
+    );
+  }
+
+  return randomWord;
 }
 
 export async function getRandomWord() {

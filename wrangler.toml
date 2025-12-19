@@ -1,0 +1,11 @@
+name = "dictionary-api"
+main = "src/worker.js"
+compatibility_flags = ["nodejs_compat_v2"]
+compatibility_date = "2025-03-20"
+
+[vars]
+MONGO_DB = "mnr-flex"
+
+# Secrets (set via `wrangler secret put`):
+# - MONGO_URI
+# - OPENAI_API_KEY

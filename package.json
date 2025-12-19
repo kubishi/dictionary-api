@@ -1,20 +1,20 @@
 {
   "name": "dictionary-api",
   "version": "1.0.0",
-  "description": "Kubishi Dictionary API - Serverless",
+  "description": "Kubishi Dictionary API - Cloudflare Workers",
   "type": "module",
   "scripts": {
-    "dev": "node dev-server.js",
-    "deploy": "vercel --prod",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
     "upload": "node scripts/upload.js"
   },
   "dependencies": {
-    "dotenv": "^17.2.3",
-    "mongodb": "^6.0.0",
+    "mongodb": "^6.15.0",
     "openai": "^4.0.0"
   },
   "devDependencies": {
-    "vercel": "^48.11.0",
+    "wrangler": "^4.4.0",
+    "dotenv": "^17.2.3",
     "xml2js": "^0.6.0"
   },
   "engines": {
